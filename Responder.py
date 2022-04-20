@@ -15,7 +15,11 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 import optparse
+import socketserver
 import ssl
+import socket
+import certifi
+import os
 try:
 	from SocketServer import TCPServer, UDPServer, ThreadingMixIn
 except:
@@ -64,7 +68,7 @@ settings.Config.ExpandIPRanges()
 #Create the DB, before we start Responder.
 CreateResponderDb()
 
-class ThreadingUDPServer(ThreadingMixIn, UDPServer):
+class ThreadingUDPServer(socketserver.ThreadingMixIn, socketserver.UDPServer):
 	def server_bind(self):
 		if OsInterfaceIsSupported():
 			try:
@@ -81,7 +85,7 @@ class ThreadingUDPServer(ThreadingMixIn, UDPServer):
 				pass
 		UDPServer.server_bind(self)
 
-class ThreadingTCPServer(ThreadingMixIn, TCPServer):
+class ThreadingTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
 	def server_bind(self):
 		if OsInterfaceIsSupported():
 			try:
@@ -98,7 +102,7 @@ class ThreadingTCPServer(ThreadingMixIn, TCPServer):
 				pass
 		TCPServer.server_bind(self)
 
-class ThreadingTCPServerAuth(ThreadingMixIn, TCPServer):
+class ThreadingTCPServerAuth(socketserver.ThreadingMixIn, socketserver.TCPServer):
 	def server_bind(self):
 		if OsInterfaceIsSupported():
 			try:
@@ -116,7 +120,7 @@ class ThreadingTCPServerAuth(ThreadingMixIn, TCPServer):
 		self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack('ii', 1, 0))
 		TCPServer.server_bind(self)
 
-class ThreadingUDPMDNSServer(ThreadingMixIn, UDPServer):
+class ThreadingUDPMDNSServer(socketserver.ThreadingMixIn, socketserver.UDPServer):
 	def server_bind(self):
 		MADDR = "224.0.0.251"
 		MADDR6 = 'ff02::fb'
@@ -146,7 +150,7 @@ class ThreadingUDPMDNSServer(ThreadingMixIn, UDPServer):
 				pass
 		UDPServer.server_bind(self)
 
-class ThreadingUDPLLMNRServer(ThreadingMixIn, UDPServer):
+class ThreadingUDPLLMNRServer(socketserver.ThreadingMixIn, socketserver.UDPServer):
 	def server_bind(self):
 		MADDR  = '224.0.0.252'
 		MADDR6 = 'FF02:0:0:0:0:0:1:3'
@@ -173,19 +177,19 @@ class ThreadingUDPLLMNRServer(ThreadingMixIn, UDPServer):
 		UDPServer.server_bind(self)
 		
 
-ThreadingUDPServer.allow_reuse_address = 1
+ThreadingUDPServer.allow_reuse_address = True
 ThreadingUDPServer.address_family = socket.AF_INET6
 
-ThreadingTCPServer.allow_reuse_address = 1
+ThreadingTCPServer.allow_reuse_address = True
 ThreadingTCPServer.address_family = socket.AF_INET6
 
-ThreadingUDPMDNSServer.allow_reuse_address = 1
+ThreadingUDPMDNSServer.allow_reuse_address = True
 ThreadingUDPMDNSServer.address_family = socket.AF_INET6
 
-ThreadingUDPLLMNRServer.allow_reuse_address = 1
+ThreadingUDPLLMNRServer.allow_reuse_address = True
 ThreadingUDPLLMNRServer.address_family = socket.AF_INET6
 
-ThreadingTCPServerAuth.allow_reuse_address = 1
+ThreadingTCPServerAuth.allow_reuse_address = True
 ThreadingTCPServerAuth.address_family = socket.AF_INET6
 
 def serve_thread_udp_broadcast(host, port, handler):
@@ -247,13 +251,14 @@ def serve_thread_tcp_auth(host, port, handler):
 
 def serve_thread_SSL(host, port, handler):
 	try:
-
 		cert = os.path.join(settings.Config.ResponderPATH, settings.Config.SSLCert)
 		key =  os.path.join(settings.Config.ResponderPATH, settings.Config.SSLKey)
-
 		if OsInterfaceIsSupported():
+			context = ssl.create_default_context()
+			with socket.create_connection((host, port)) as sock:
+				with context.wrap_socket(sock,server_hostname=host) as ssock:
+					print(ssock.version())
 			server = ThreadingTCPServer(('', port), handler)
-			server.socket = ssl.wrap_socket(server.socket, certfile=cert, keyfile=key, server_side=True)
 			server.serve_forever()
 		else:
 			server = ThreadingTCPServer(('', port), handler)
@@ -363,7 +368,7 @@ def main():
 			threads.append(Thread(target=serve_thread_tcp, args=(settings.Config.Bind_To, 53, DNSTCP,)))
 
 		for thread in threads:
-			thread.setDaemon(True)
+			thread.daemon = True
 			thread.start()
 
 		if settings.Config.AnalyzeMode:
